@@ -264,27 +264,37 @@ def t3_dino_pretrain(dino_data, device, approaches):
     #
     #   2. Create teacher as a frozen deep copy of the student (no gradients).
     #
-    #   3. Create an optimizer and a DataLoader for the multi-crop data.
-    #      Note: each sample is a variable-length list of crops, so you need
-    #      a custom collate function that returns the batch as a list of lists.
+    #   3. Create an optimizer.
+    #
+    #   4. Create a DataLoader for the multi-crop data.
+    #      Normally, DataLoader's default collate stacks all samples into a
+    #      single tensor via torch.stack. But here each sample is a list of
+    #      crops with different sizes (224x224 globals + 96x96 locals), so
+    #      stacking fails. However, the collate_fn input to DataLoader can 
+    #      receive a list of samples and return a batch; so, we can use it:
+    #      passing collate_fn=list makes it return the samples as-is 
+    #      (list in, list out), skipping the stacking step.
     #
     #   Training loop (for each epoch, for each batch):
-    #   4. Forward the teacher on global crops only (first 2), with no gradients.
+    #   5. Forward the teacher on global crops only (first 2), with no gradients.
     #      Forward the student on all crops (global + local).
     #
-    #   5. DINO loss: for each cross-view pair (teacher crop i, student crop j,
-    #      skipping i == j), compute cross-entropy between:
-    #        - teacher: softmax(output / teacher_temp), detached
-    #        - student: log_softmax(output / student_temp)
-    #      Loss = -sum(teacher_prob * student_log_prob), averaged over pairs.
+    #   6. DINO loss: for each cross-view pair (teacher crop i, student crop j,
+    #      skipping i == j), compute cross-entropy where the target distribution
+    #      is the teacher's sharpened softmax (divided by teacher_temp)
+    #      and the predicted distribution is the student's sharpened softmax
+    #      (divided by student_temp — less sharp than the teacher's).
+    #      Average over all valid pairs.
+    #      Remember: there is no gradient back from the loss for the teacher, so
+    #      .detatch() on the teacher's softmax to prevent backprop through it.
     #
-    #   6. Backprop and optimizer step.
+    #   7. Backprop and optimizer step.
     #
-    #   7. EMA update: for each parameter pair,
+    #   8. EMA update: for each parameter pair,
     #      teacher = momentum * teacher + (1 - momentum) * student
     #
     #   After each epoch:
-    #   8. Print average loss and call the dashboard:
+    #   9. Print average loss and call the dashboard:
     #       dashboard.update(epoch, avg_loss, student_out[0].detach(),
     #                        teacher_out[0].detach(),
     #                        center=torch.zeros(hp.DINO_OUT_DIM),
@@ -292,10 +302,10 @@ def t3_dino_pretrain(dino_data, device, approaches):
     #                        ema_momentum=hp.DINO_EMA_MOMENTUM)
     #
     #   After training:
-    #   9. Save encoder weights to approaches['dino'].weights
-    #  10. Save loss curve to approaches['dino'].curve_train
-    #  11. Call dashboard.save_attention_evolution()
-    #  12. Visualize final attention maps using your visualize_attention():
+    #  10. Save encoder weights to approaches['dino'].weights
+    #  11. Save loss curve to approaches['dino'].curve_train
+    #  12. Call dashboard.save_attention_evolution()
+    #  13. Visualize final attention maps using your visualize_attention():
     #          results_dir/attention_maps_fade.png      (style='fade')
     #          results_dir/attention_maps_grayscale.png (style='gray')
 
